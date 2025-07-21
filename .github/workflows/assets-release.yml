@@ -26,11 +26,6 @@ jobs:
             echo "found=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
       - name: Install zip and jq
         run: sudo apt-get update && sudo apt-get install -y zip jq
 
