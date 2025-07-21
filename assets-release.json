@@ -1,0 +1,15 @@
+[
+    {
+        "name": "asset-package",
+        "files": [
+            "extensions/whatsapp/tsconfig.json",
+            "extensions/whatsapp/package.json",
+            "extensions/whatsapp/apis.ts",
+            "extensions/whatsapp/utils/generateWhatsappQrCode.ts",
+            "extensions/whatsapp/uiContext/index.ts",
+            "extensions/whatsapp/context/index.ts",
+            "extensions/whatsapp/context/sendMessage.ts",
+            "extensions/whatsapp/context/subscribeToMessages.ts"
+        ]
+    }
+]
