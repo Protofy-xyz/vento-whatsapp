@@ -1,6 +1,6 @@
 import { BoardModel } from "./boardsSchemas";
-import { AutoAPI, getRoot } from 'protonode'
-import { API, getLogger, ProtoMemDB, set } from 'protobase'
+import { AutoAPI, getRoot, handler } from 'protonode'
+import { API, getLogger, ProtoMemDB, generateEvent } from 'protobase'
 import { promises as fs } from 'fs';
 import * as fsSync from 'fs';
 import * as fspath from 'path';
@@ -59,7 +59,7 @@ async function execute_action(url_or_name, params={}) {
         const response = await API.post(action.url+'?token='+token, data);
         return response.data
     } else {
-        const paramsStr = Object.keys(params).map(k => k + '=' + params[k]).join('&');
+        const paramsStr = Object.keys(params).map(k => k + '=' + encodeURIComponent(params[k])).join('&');
         //console.log('url: ', action.url+'?token='+token+'&'+paramsStr)
         const response = await API.get(action.url+'?token='+token+'&'+paramsStr);
         return response.data
@@ -280,7 +280,7 @@ const getDB = (path, req, session) => {
                 const boardFileContent = `const { boardConnect } = require('protonode')
 const { Protofy } = require('protobase')
 
-const run = Protofy("code", async ({ states, board }) => {
+const run = Protofy("code", async ({ context, states, board }) => {
 
 })
 
@@ -300,6 +300,7 @@ boardConnect(run)`
                         const card = actionsCards[i];
                         console.log("Adding action: ", JSON.stringify(card, null, 4))
                         addAction({
+                            method: card.method || 'get',
                             group: 'boards',
                             name: card.name,
                             url: "/api/core/v1/boards/" + key + "/actions/" + card.name,
@@ -390,7 +391,7 @@ export default async (app, context) => {
         // console.log('**************Reloading board: ', boardId)
         const states = (await context.state.getStateTree()) || {};
         const fileContent = await getBoard(boardId);
-        
+
         if (!fileContent.cards || !Array.isArray(fileContent.cards)) {
             return fileContent;
         }
@@ -402,7 +403,7 @@ export default async (app, context) => {
                 continue;
             }
 
-            
+
             try {
                 if (card.type == 'value') {
                     if (!card.rulesCode) {
@@ -465,7 +466,7 @@ export default async (app, context) => {
     });
 
     app.post('/api/core/v1/autopilot/getValueCode', requireAdmin(), async (req, res) => {
-        const prompt = await context.autopilot.getPromptFromTemplate({ templateName: "valueRules", states: JSON.stringify(req.body.states, null, 4), rules: JSON.stringify(req.body.rules, null, 4) });
+        const prompt = await context.autopilot.getPromptFromTemplate({ board: req.body.board, templateName: "valueRules", states: JSON.stringify({ boards: req.body.states }, null, 4), rules: JSON.stringify(req.body.rules, null, 4) });
         if (req.query.debug) {
             console.log("Prompt: ", prompt)
         }
@@ -476,7 +477,7 @@ export default async (app, context) => {
     })
 
     app.post('/api/core/v1/autopilot/getActionCode', requireAdmin(), async (req, res) => {
-        const prompt = await context.autopilot.getPromptFromTemplate({ templateName: "actionRules", states: JSON.stringify(req.body.states, null, 4), rules: JSON.stringify(req.body.rules, null, 4), actions: JSON.stringify(req.body.actions, null, 4), userParams: JSON.stringify(req.body.userParams, null, 4) });
+        const prompt = await context.autopilot.getPromptFromTemplate({ board: req.body.board, templateName: "actionRules", states: JSON.stringify({ boards: req.body.states }, null, 4), rules: JSON.stringify(req.body.rules, null, 4), actions: JSON.stringify(req.body.actions, null, 4), userParams: JSON.stringify(req.body.userParams, null, 4) });
         if (req.query.debug) {
             console.log("Prompt: ", prompt)
         }
@@ -553,9 +554,9 @@ export default async (app, context) => {
         }
     })
 
-    app.get('/api/core/v1/boards/:boardId/actions/:action', requireAdmin(), async (req, res) => {
-        const actions = await getBoardActions(req.params.boardId);
-        const action = actions.find(a => a.name === req.params.action);
+    const handleBoardAction = async (boardId, action_or_card_id, res, params) => {
+        const actions = await getBoardActions(boardId);
+        const action = actions.find(a => a.name === action_or_card_id);
 
         if (!action) {
             res.send({ error: "Action not found" });
@@ -567,36 +568,152 @@ export default async (app, context) => {
             return;
         }
 
+        await generateEvent({
+            path: `actions/boards/${boardId}/${action_or_card_id}/run`,
+            from: 'system',
+            user: 'system',
+            ephemeral: true,
+            payload: {
+                status: 'running',
+                action: action_or_card_id,
+                boardId: boardId,
+                params
+            },
+        }, getServiceToken());
+
         const states = await context.state.getStateTree();
-        //after trimming empty lines from the beginning or empty spaces, check if the line start with 'return ', if not, add 'return ' at the beginning
         let rulesCode = action.rulesCode.trim();
 
         const wrapper = new AsyncFunction('states', 'board', 'userParams', 'params', 'token', 'API', `
-                ${getExecuteAction(await getActions(), req.params.boardId)}
-                ${rulesCode}
-            `);
+        ${getExecuteAction(await getActions(), boardId)}
+        ${rulesCode}
+    `);
 
-        let response = await wrapper(states, states?.boards?.[req.params.boardId] ?? {}, req.query, req.query, token, API);
+        try {
+            let response = null;
+            try {
+                response = await wrapper(states, states?.boards?.[boardId] ?? {}, params, params, token, API);
+            } catch (err) {
+                await generateEvent({
+                    path: `actions/boards/${boardId}/${action_or_card_id}/code/error`,
+                    from: 'system',
+                    user: 'system',
+                    ephemeral: true,
+                    payload: {
+                        status: 'code_error',
+                        action: action_or_card_id,
+                        boardId: boardId,
+                        params,
+                        stack: err.stack,
+                        message: err.message,
+                        name: err.name,
+                        code: err.code
+                    },
+                }, getServiceToken());
 
-        //the real value could by in responseKey
-        if (action.responseKey && response && typeof response === 'object' && action.responseKey in response) {
-            response = response[action.responseKey];
+                console.error("Error executing action code: ", err);
+                res.status(500).send({ _err: "e_code", error: "Error executing action code", message: err.message, stack: err.stack, name: err.name, code: err.code });
+                return;
+            }
+
+            if (action.responseKey && response && typeof response === 'object' && action.responseKey in response) {
+                response = response[action.responseKey];
+            }
+
+            const prevValue = await context.state.get({ group: 'boards', tag: boardId, name: action.name });
+            if (response !== prevValue) {
+                await context.state.set({ group: 'boards', tag: boardId, name: action.name, value: response, emitEvent: true });
+                Manager.update(`../../data/boards/${boardId}.js`, 'states', action.name, response);
+            }
+
+            res.json(response);
+
+            await generateEvent({
+                path: `actions/boards/${boardId}/${action_or_card_id}/done`,
+                from: 'system',
+                user: 'system',
+                ephemeral: true,
+                payload: {
+                    status: 'done',
+                    action: action_or_card_id,
+                    boardId: boardId,
+                    params,
+                    response
+                },
+            }, getServiceToken());
+
+        } catch (err) {
+            await generateEvent({
+                path: `actions/boards/${boardId}/${action_or_card_id}/error`,
+                from: 'system',
+                user: 'system',
+                ephemeral: true,
+                payload: {
+                    status: 'error',
+                    action: action_or_card_id,
+                    boardId: boardId,
+                    params,
+                    stack: err.stack,
+                    message: err.message,
+                    name: err.name,
+                    code: err.code
+                },
+            }, getServiceToken());
+            console.error("Error executing action: ", err);
+            res.status(500).send({ _err: "e_general", error: "Error executing action", message: err.message, stack: err.stack, name: err.name, code: err.code });
+        }
+    };
+
+    // Aceptar GET
+    app.get('/api/core/v1/boards/:boardId/actions/:action', requireAdmin(), (req, res) => {
+        handleBoardAction(req.params.boardId, req.params.action, res, req.query)
+    })
+
+    const hasAccessToken = async (tokenType, session, cardId, boardId, token) => {
+        const board = await getBoard(boardId);
+        if (!board.cards || !Array.isArray(board.cards)) {
+            return false
+        }
+        const card = board.cards.find(c => c.name === cardId);
+        if (!card) {
+            return false;
         }
 
-        // console.log('Action response: ', response);
-        //get previous value from state
-        const prevValue = await context.state.get({ group: 'boards', tag: req.params.boardId, name: action.name, defaultValue: undefined });
-        // console.log('Action Previous value: ', prevValue);
-        if (response !== prevValue) {
-            //set the new value in the state
-            // console.log('Setting new value for action: ', action.name, ' in board: ', req.params.boardId, ' with value: ', response);
-            await context.state.set({ group: 'boards', tag: req.params.boardId, name: action.name, value: response, emitEvent: true });
-
-            Manager.update('../../data/boards/' + req.params.boardId + '.js', 'states', action.name, response);
+        if (card.tokens && card.tokens[tokenType]) {
+            const cardToken = card.tokens[tokenType];
+            if (cardToken === token || (session && session.user.admin)) {
+                return true;
+            }
+        } else {
+            if (session && session.user.admin) {
+                return true;
+            }
         }
+        return false;
+    }
 
-        res.json(response);
+    app.get('/api/core/v1/boards/:boardId/cards/:cardId', handler(async (req, res, session, next) => {
+        //get read token from card
+        if(!(await hasAccessToken('read', session, req.params.cardId, req.params.boardId, req.query.token))) {
+            res.status(403).send({ error: "Forbidden: Invalid token" });
+        } else {
+            const value = ProtoMemDB('states').get('boards', req.params.boardId, req.params.cardId);
+            res.send(value || null);
+        }
+    }))
 
+    app.get('/api/core/v1/boards/:boardId/cards/:cardId/run', handler(async (req, res, session, next) => {
+        //get read token from card
+        if(!(await hasAccessToken('run', session, req.params.cardId, req.params.boardId, req.query.token))) {
+            res.status(403).send({ error: "Forbidden: Invalid token" });
+        } else {
+            handleBoardAction(req.params.boardId, req.params.cardId, res, req.query);
+        }
+    }))
+
+    // Aceptar POST
+    app.post('/api/core/v1/boards/:boardId/actions/:action', requireAdmin(), (req, res) => {
+        handleBoardAction(req.params.boardId, req.params.action, res, req.body)
     })
 
     app.get('/api/core/v1/boards/:boardId', requireAdmin(), async (req, res) => {
@@ -745,10 +862,77 @@ export default async (app, context) => {
         }
     })
 
+
+    addAction({
+        group: 'board',
+        name: 'reset',
+        url: "/api/core/v1/autopilot/llm",
+        tag: 'card',
+        description: "Resets the value of a card in the board",
+        params: {
+            name: "the name of the card to reset"
+        },
+        emitEvent: true,
+        receiveBoard: true,
+        token: await getServiceToken()
+    })
+
+    addCard({
+        group: 'board',
+        tag: 'card',
+        id: 'board_reset',
+        templateName: 'Reset card value',
+        name: 'board_reset',
+        defaults: {
+            type: "action",
+            icon: 'message-square-text',
+            name: 'card reset',
+            description: 'Reset the value of a card in the board',
+            params: {
+                name: "Name of the card to reset"
+            },
+            rulesCode: `return await execute_action("/api/core/v1/board/cardreset", userParams)`,
+            displayResponse: true,
+            buttonLabel: "Reset card",
+            displayIcon: false
+        },
+        emitEvent: true,
+        token: await getServiceToken()
+    })
+
+    app.get('/api/core/v1/board/cardreset', requireAdmin(), async (req, res) => {
+        if (!req.query.name) {
+            res.status(400).send('Missing name parameter')
+            return
+        }
+
+        if (!req.query.board) {
+            res.status(400).send('Missing board parameter')
+            return
+        }
+
+        const board = await getBoard(req.query.board);
+        if (!board.cards || !Array.isArray(board.cards)) {
+            res.send({ error: "No cards found" });
+            return;
+        }
+
+        const card = board.cards.find(c => c.name === req.query.name);
+        if (!card) {
+            res.send({ error: "Card not found" });
+            return;
+        }
+
+        await context.state.set({ group: 'boards', tag: req.query.board, name: card.name, value: card.initialValue ?? undefined, emitEvent: true });
+
+        Manager.update('../../data/boards/' + req.query.board + '.js', 'states', card.name, null);
+        res.json(card.name);
+    })
+
     addAction({
         group: 'autopilot',
         name: 'send',
-        url: "/api/core/v1/autopilot/llm",
+        url: "/api/core/v1/board/cardreset",
         tag: 'message',
         description: "Send a direct instruction to the autopilot system, in natural language. Returns the result of executing the instruction.",
         params: {
@@ -762,10 +946,12 @@ export default async (app, context) => {
     addCard({
         group: 'autopilot',
         tag: 'message',
-        id: 'send',
+        id: 'autopilot_send_message',
         templateName: 'Send a message to the autopilot system',
-        name: 'autopilot_send',
+        name: 'send',
         defaults: {
+            width: 2,
+            height: 8,
             type: "action",
             icon: 'message-square-text',
             name: 'autopilot_send',
@@ -822,10 +1008,12 @@ export default async (app, context) => {
     addCard({
         group: 'board',
         tag: 'question',
-        id: 'send',
+        id: 'board_question_send',
         templateName: 'Send a question to the board',
         name: 'board_question',
         defaults: {
+            width: 2,
+            height: 8,
             type: "action",
             icon: 'message-square-text',
             name: 'board question',
@@ -842,10 +1030,12 @@ export default async (app, context) => {
     addCard({
         group: 'board',
         tag: "iframe",
-        id: 'show',
+        id: 'board_iframe_show',
         templateName: "Display a link in an iframe",
-        name: "board_iframe",
+        name: "show",
         defaults: {
+            width: 4,
+            height: 12,
             name: "Frame",
             icon: "monitor-stop",
             description: "Display a link in an iframe",
@@ -871,6 +1061,8 @@ return card({
         templateName: 'Display a YouTube video',
         name: 'board_youtube',
         defaults: {
+            width: 3,
+            height: 8,
             name: 'YouTube Video',
             icon: 'youtube',
             description: 'Embed a YouTube video from a URL',
@@ -897,10 +1089,13 @@ return card({
         templateName: "Display an image",
         name: "board_image",
         defaults: {
+            width: 1,
+            height: 4,
             name: "Image",
             icon: "image",
             description: "Display an image that scales without distortion",
             type: 'value',
+            rulesCode: 'return `/public/vento-square.png`',
             html: `
 // data contains: data.value, data.icon and data.color
 return card({
@@ -918,34 +1113,18 @@ return card({
     addCard({
         group: 'board',
         tag: 'markdown',
-        id: 'markdown',
+        id: 'board_markdown',
         templateName: 'Display markdown text',
         name: 'board_markdown',
         defaults: {
+            width: 3,
+            height: 12,
             name: 'Markdown',
             icon: 'file-text',
             description: 'Render formatted markdown using ReactMarkdown',
             type: 'value',
-            html: "return markdown(data)",
-            editorOptions: {
-                defaultTab: "value"
-            },
-        },
-        emitEvent: true
-    });
-
-        addCard({
-        group: 'board',
-        tag: 'filebrowser',
-        id: 'filebrowser',
-        templateName: 'Display a file browser',
-        name: 'board_filebrowser',
-        defaults: {
-            name: 'File Browser',
-            icon: 'folder-search',
-            description: 'Render a file browser',
-            type: 'value',
-            html: "return fileBrowser(data)",
+            html: "//@react\nreturn markdown(data)",
+            rulesCode: "return `# h1 Heading 8-)\n## h2 Heading\n### h3 Heading\n#### h4 Heading\n##### h5 Heading\n###### h6 Heading\n\n## Tables\n\n| Option | Description |\n| ------ | ----------- |\n| data   | path to data files to supply the data that will be passed into templates. |\n| engine | engine to be used for processing templates. Handlebars is the default. |\n| ext    | extension to be used for dest files. |\n\nRight aligned columns\n\n| Option | Description |\n| ------:| -----------:|\n| data   | path to data files to supply the data that will be passed into templates. |\n| engine | engine to be used for processing templates. Handlebars is the default. |\n| ext    | extension to be used for dest files. |`",
             editorOptions: {
                 defaultTab: "value"
             },
@@ -955,11 +1134,73 @@ return card({
 
     addCard({
         group: 'board',
-        tag: "react",
-        id: 'show',
-        templateName: "Display a React component",
-        name: "board_react",
+        tag: 'filebrowser',
+        id: 'board_filebrowser',
+        templateName: 'Display a file browser',
+        name: 'view',
         defaults: {
+            width: 5.5,
+            height: 12,
+            name: 'File Browser',
+            icon: 'folder-search',
+            description: 'Render a file browser',
+            type: 'value',
+            html: "return fileBrowser(data)",
+            rulesCode: "return `/data/public`",
+            editorOptions: {
+                defaultTab: "value"
+            },
+        },
+        emitEvent: true
+    });
+
+    addCard({
+        group: 'board',
+        tag: 'queue',
+        id: 'board_interactive_queue',
+        templateName: 'Queue of items',
+        name: 'interactive',
+        defaults: {
+            name: 'queue',
+            icon: 'file-stack',
+            width: 2,
+            height: 12,
+            description: 'Display a queue of items',
+            type: 'action',
+            editorOptions: {
+                defaultTab: "value"
+            },
+            html: "\n// data contains: data.icon, data.color, data.name, data.params\nreactCard(`\n  function Widget() {\n    return (\n        <Tinted>\n            {/* you can use data.value here to access the value */}\n            <ViewList items={data.value} onClear={(items) => execute_action('queue', {action: 'clear'})} onDeleteItem={(item, index) => execute_action('queue', {action: 'remove', index})} />\n\n        </Tinted>\n    );\n  }\n\n`, data.domId)\n",
+            displayResponse: true,
+            rulesCode: "if (params.action == 'reset') {\r\n    return [];\r\n} else if (params.action == 'pop') {\r\n    return (Array.isArray(board?.['queue']) ? board?.['queue'] : []).slice(1);\r\n} else if (params.action == 'remove') {\r\n    const queue = Array.isArray(board?.['queue']) ? board['queue'] : [];\r\n    const index = parseInt(params.index, 10);\r\n    return queue.slice(0, index).concat(queue.slice(index + 1));\r\n} else if(params.action == 'clear') {\r\n    return []\r\n} else {\r\n    return (Array.isArray(board?.['queue']) ? board?.['queue'] : []).concat([params.item]);\r\n}",
+            params: {
+                item: "",
+                action: "action to perform in the queue: push, pop, clear"
+            },
+            configParams: {
+                item: {
+                    visible: true,
+                    defaultValue: ""
+                },
+                action: {
+                    "visible": true,
+                    "defaultValue": ""
+                }
+            },
+            displayButton: false
+        },
+        emitEvent: true
+    });
+
+    addCard({
+        group: 'board',
+        tag: "react",
+        id: 'board_react',
+        templateName: "Display a React component",
+        name: "show",
+        defaults: {
+            width: 2,
+            height: 8,
             name: "React",
             icon: "table-properties",
             description: "Display a React component",
@@ -972,15 +1213,18 @@ return card({
     addCard({
         group: 'board',
         tag: "table",
-        id: 'show',
+        id: 'board_table_show',
         templateName: "Display an array of objects in a table",
-        name: "board_table",
+        name: "show",
         defaults: {
+            width: 3,
+            height: 10,
             name: "Table",
             icon: "table-properties",
             description: "Display an array of objects in a table",
             type: 'value',
             html: "\n//data contains: data.value, data.icon and data.color\nreturn card({\n    content: cardTable(data.value), padding: '3px'\n});\n",
+            rulesCode: "return [{name: \"protofito\", age: 20}, {name: \"protofita\", age: 19}, {name: \"bad protofito\", age: 10}]",
         },
         emitEvent: true
     })

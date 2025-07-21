@@ -10,11 +10,9 @@
     "files": [
         "dist"
     ],
-    "devDependencies": {
-        "typescript": "5.8.2"
-    },
     "dependencies": {
         "protobase": "*",
-        "protonode": "*"
+        "protonode": "*",
+        "typescript": "5.8.2"
     }
 }

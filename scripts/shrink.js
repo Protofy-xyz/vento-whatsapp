@@ -8,35 +8,16 @@ const { execSync } = require('child_process');
 
 const dirname = path.join(__dirname, '..')
 
-
-const packagePath = path.join(dirname, 'package.json');
-const workspaces = [
-    "apps/api",
-    "apps/core",
-    "packages/app",
-    "packages/config",
-    "packages/protobase",
-    "packages/protodevice",
-    "packages/protonode",
-    "extensions/*",
-    "scripts"
-]
-// load package.json and replace workspaces with the ones we want to keep
-if (fs.existsSync(packagePath)) {
-    const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-    packageJson.workspaces = workspaces;
-    fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2), 'utf8');
-    console.log('package.json workspaces have been updated');
-} else {
-    console.error('package.json not found');
-    process.exit(1);
-}
-
 // Remove node_modules directory
-const nodeModulesPath = path.join(dirname, 'node_modules');
-if (fs.existsSync(nodeModulesPath)) {
-    rimraf.sync(nodeModulesPath);
-    console.log('node_modules directory has been removed');
+//only if not osx
+if (process.platform === 'darwin') {
+    console.log('Skipping node_modules removal on macOS');
+} else {
+    const nodeModulesPath = path.join(dirname, 'node_modules');
+    if (fs.existsSync(nodeModulesPath)) {
+        rimraf.sync(nodeModulesPath);
+        console.log('node_modules directory has been removed');
+    }
 }
 
 //remove apps/adminpanel/.next

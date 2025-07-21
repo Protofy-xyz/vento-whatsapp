@@ -1,3 +1,5 @@
+
+//import boardContext from 'app/bundles/boardContext'
 const protobase = require('protobase')
 const protonode = require('protonode')
 const API = protobase.API
@@ -24,10 +26,11 @@ export function boardConnect(run) {
         listeners[name].push(changed);
     }
 
-    async function execute_action({ name, params = {} }) {
+    async function execute_action({ name, params = {}, done = (result) => {}, error = (err) =>{} }) {
         console.log('Executing action: ', name, params);
         const action = context.actions[name]
         if (!action) {
+            error('Action not found: ' + name);
             console.error('Action not found: ', name);
             return;
         }
@@ -56,23 +59,37 @@ export function boardConnect(run) {
             }
             //console.log('url: ', url+'?token='+token)
             const response = await API.post(url + '?token=' + token, data);
+            if(response.isError) {
+                console.error('Error executing action: ', response.error);
+                error(response.error);
+                return;
+            }
+            done(response.data);
             return response.data
         } else {
             const paramsStr = Object.keys(params).map(k => k + '=' + params[k]).join('&');
             //console.log('url: ', url+'?token='+token+'&'+paramsStr)
             const response = await API.get(url + '?token=' + token + '&' + paramsStr);
+            if(response.isError) {
+                console.error('Error executing action: ', response.error);
+                error(response.error);
+                return;
+            }
+            done(response.data);
             return response.data
         }
     }
 
     process.on('message', (msg: any) => {
         if (msg.type === 'init') {
+            //import boardContext from 'app/bundles/boardContext'
+            const boardContext = require('app/bundles/boardContext').default;
             context = msg.context;
             // console.log('[WORKER] Set state:', msg.states, 'and actions:', msg.actions, 'for board:', msg.boardId);
             log = console.log.bind(console, 'Board log [' + context.boardId + ']: ');
             if (msg.type === 'init') {
                 try {
-                    run({ ...context, board: { onChange, execute_action, log, id: context.boardId } });
+                    run({ context: boardContext, ...context, board: { onChange, execute_action, log, id: context.boardId } });
                 } catch (error) {
                     console.error('Error running board [' + context.boardId + ']:', error);
                 }

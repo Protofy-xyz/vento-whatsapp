@@ -95,47 +95,10 @@ export const AdminPanel = ({ children }) => {
     borderLess={true}
     rightPanelSize={rightPanelSize}
     setRightPanelSize={setRightPanelSize}
-    rightPanelStyle={{ marginRight: '20px', height: 'calc(100vh - 85px)', marginTop: '68px', backgroundColor: 'transparent' }}
+    rightPanelStyle={{ marginRight: '20px', height: '100vh', padding: '20px', backgroundColor: 'var(--bgPanel)' }}
     rightPanelVisible={settingsLogsEnabled && appState.logsPanelOpened}
     rightPanelResizable={true}
     centerPanelContent={workspaceData && <PanelLayout
-      topBar={
-        <>
-          <XStack ai="center">
-            <XStack>{userSpaces.length > 1 && <WorkspaceSelector />}</XStack>
-            <InteractiveIcon
-              $xs={{ display: "none" }}
-              onPress={() => {
-                if (isElectron()) {
-                  window['electronAPI'].openWindow("store");
-                } else {
-                  window.open("https://store.protofy.xyz", "_blank");
-                }
-              }}
-              IconColor="var(--color)"
-              Icon={Store}
-            />
-            {isElectron() ? (
-              <InteractiveIcon
-                $xs={{ display: "none" }}
-                onPress={() => {
-                  window['electronAPI'].openExternal("http://localhost:8000");
-                }}
-                IconColor="var(--color)"
-                Icon={Globe}
-              />
-            ) : null}
-
-            {settingsLogsEnabled ? <InteractiveIcon $xs={{ display: "none" }} onPress={() => {
-              if (isElectron()) {
-                window['electronAPI'].toggleLogWindow()
-              } else {
-                setAppState({ ...appState, logsPanelOpened: !appState.logsPanelOpened })
-              }
-            }} IconColor="var(--color)" Icon={Activity}></InteractiveIcon> : null}
-          </XStack>
-        </>
-      }
       menuContent={<PanelMenu workspace={workspaceData} />}
     >
       <XStack f={1} px={"$0"} flexWrap='wrap'>

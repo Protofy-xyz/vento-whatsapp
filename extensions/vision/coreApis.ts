@@ -4,6 +4,7 @@ import { Application } from "express";
 import axios from "axios";
 import { addAction } from "@extensions/actions/coreContext/addAction";
 import { addCard } from "@extensions/cards/coreContext/addCard";
+import { getChatGPTApiKey } from '@extensions/chatgpt/coreContext';
 
 async function getImageBase64(url) {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
@@ -11,6 +12,43 @@ async function getImageBase64(url) {
 }
 
 async function sendPromptWithImage(prompt, imageUrl) {
+    const token = await getChatGPTApiKey();
+    if (!token) throw new Error("OpenAI API key not found");
+    const imageBase64 = await getImageBase64(imageUrl);
+
+    const response = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+            temperature: 1,
+            model: 'gpt-4o', // o 'gpt-4-vision-preview'
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: `data:image/jpeg;base64,${imageBase64}`,
+                            },
+                        },
+                        { type: "text", text: prompt }
+                    ],
+                },
+            ],
+            max_tokens: 1024,
+        },
+        {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+        }
+    );
+
+    return response.data.choices[0].message.content;
+}
+
+async function sendPromptWithImageLmStudio(prompt, imageUrl) {
     const imageBase64 = await getImageBase64(imageUrl);
 
     // Enviar el prompt y la imagen en base64 a LM Studio
@@ -50,6 +88,8 @@ export default async (app: Application, context: typeof APIContext) => {
         templateName: 'IP Camera',
         name: 'vision_camera',
         defaults: {
+            width: 3,
+            height: 10,
             type: "value",
             icon: 'camera',
             name: 'camera',
@@ -108,6 +148,8 @@ export default async (app: Application, context: typeof APIContext) => {
         templateName: 'Detect objects using AI',
         name: 'vision_detect',
         defaults: {
+            width: 2,
+            height: 10,
             type: "action",
             icon: 'camera',
             name: 'detect',
@@ -161,6 +203,8 @@ export default async (app: Application, context: typeof APIContext) => {
         templateName: 'describe image using AI',
         name: 'vision_describe',
         defaults: {
+            width: 2,
+            height: 10,
             type: "action",
             icon: 'camera',
             name: 'describe',
@@ -171,6 +215,41 @@ export default async (app: Application, context: typeof APIContext) => {
             },
             rulesCode: `return await execute_action("/api/core/v1/vision/describe", userParams)`,
             displayResponse: true
+        },
+        emitEvent: true,
+    })
+
+    addCard({
+        group: 'vision',
+        tag: 'inputs',
+        id: 'vision_web_camera',
+        templateName: 'Board Camera',
+        name: 'web_camera',
+        defaults: {
+            "width": 2,
+            "height": 8,
+            "icon": "table-properties",
+            "html": "//@react\nreactCard(`\n  function Widget(props) {\n    return (\n        <Tinted>\n          <View className=\"no-drag\">\n            <CameraCard params={props.configParams} onPicture={(picture64) => {\n              execute_action(props.name, {picture: picture64})\n            }}/>\n          </View>\n        </Tinted>\n    );\n  }\n\n`, data.domId, data)\n",
+            "name": "camera",
+            "description": "Display a React component",
+            "type": "action",
+            "method": "post",
+            "displayButton": true,
+            "rulesCode": "return params.picture",
+            "params": {
+                "mode": "manual or auto (auto is experimental)",
+                "fps": "fps to capture"
+            },
+            "configParams": {
+                "mode": {
+                    "visible": false,
+                    "defaultValue": "manual"
+                },
+                "fps": {
+                    "visible": false,
+                    "defaultValue": "1"
+                }
+            },
         },
         emitEvent: true,
     })

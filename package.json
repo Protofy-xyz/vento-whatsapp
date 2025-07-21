@@ -1,12 +1,13 @@
 {
   "name": "site",
-  "main": "electron/proxy-main.js",
+  "main": "electron/launcher-main.js",
   "private": true,
-  "version": "0.0.12",
+  "version": "0.1.1",
   "workspaces": [
     "apps/adminpanel",
     "apps/api",
     "apps/core",
+    "apps/launcher",
     "packages/app",
     "packages/config",
     "packages/protobase",
@@ -36,7 +37,7 @@
     "prepare": "node prepare.js && yarn workspaces foreach --all run prepare-dev",
     "add-user": "yarn workspace core add-user",
     "build": "yarn workspaces foreach -t --all run build",
-    "package": "yarn workspaces foreach --all run package",
+    "package": "yarn prepare-dev && yarn workspaces foreach --all run package",
     "status": "pm2 status",
     "monit": "pm2 monit",
     "dashboard": "pm2 plus",
@@ -47,14 +48,17 @@
     "sync": "git fetch upstream && git merge upstream/main",
     "fix": "manypkg fix",
     "check-deps": "check-dependency-version-consistency .",
-    "shrink": "node scripts/shrink.js",
+    "shrink": "node scripts/removeDevMode.js && node scripts/shrink.js",
     "clean": "yarn workspaces foreach --all run clean",
-    "protofy-update-setup": "git remote add protofy git@github.com:Protofy-xyz/Protofy.git",
-    "protofy-update": "git fetch protofy && git rebase protofy/main && yarn clean",
+    "vento-update-setup": "git remote add vento git@github.com:Protofy-xyz/Vento.git",
+    "vento-update": "git fetch vento && git rebase vento/main && yarn clean",
     "python": "node apps/python/run.js",
     "git-origin-setup": "node scripts/git-origin-setup.js",
     "app-dev": "electron . --dev",
-    "app-package": "electron-builder -c electron-builder.yml build",
+    "app-package-win": "electron-builder -c electron-builder.yml --win --x64",
+    "app-package-mac": "electron-builder -c electron-builder.yml --mac --arm64",
+    "app-package-linux": "electron-builder -c electron-builder.yml --linux --x64",
+    "app-package-all": "electron-builder -c electron-builder.yml --win --mac --linux",
     "download-binaries": "node scripts/download-bins.js",
     "clean-deps": "shx rm -rf node_modules"
   },
@@ -66,18 +70,20 @@
     "react-native-web": "~0.19.12"
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "minimist": "1.2.8",
     "node-gyp": "^10.1.0",
     "pm2": "^5.3.0",
     "rimraf": "2.6.3",
-    "semver": "^7.5.4"
+    "semver": "^7.5.4",
+    "tar": "7.4.3",
+    "typescript": "5.8.2"
   },
   "packageManager": "yarn@3.5.1",
   "devDependencies": {
     "@babel/runtime": "^7.24.6",
     "@manypkg/cli": "^0.21.4",
     "@types/adm-zip": "^0",
-    "adm-zip": "^0.5.16",
     "async": "3.2.5",
     "check-dependency-version-consistency": "^4.1.0",
     "electron": "29.4.6",
@@ -91,8 +97,7 @@
     "prettier": "^2.8.1",
     "shx": "^0.3.4",
     "tar": "^7.4.3",
-    "ts-node": "10.9.1",
-    "typescript": "5.8.2"
+    "ts-node": "10.9.1"
   },
   "nohoist": [
     "hub/react-native",

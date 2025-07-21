@@ -9,6 +9,7 @@ const process = require('process');
 const fs = require('fs');
 
 const rootPath = path.join(__dirname, '..')
+console.log('📂 Root path:', rootPath);
 
 //get path to the local Node.js binary
 let nodePath = os.platform() === 'win32' ? path.join(rootPath, 'bin/node.exe') : path.join(rootPath, 'bin/node') 
@@ -240,6 +241,8 @@ app.whenReady().then(async () => {
 
     await runYarn('kill'); // Ensure any previous PM2 processes are killed
     console.log('💣 Previous PM2 processes killed.');
+
+    // await runYarn('prepare-dev');
 
     const args = require('minimist')(process.argv.slice(2));
     runYarn(args.dev ? 'dev-fast' : 'start-fast' ,line => {

@@ -11,7 +11,7 @@ import { ActiveGroup } from './ActiveGroup';
 import { ActiveGroupButton } from './ActiveGroupButton';
 import { ButtonGroup } from './ButtonGroup';
 import { forwardRef, useContext, useEffect, useMemo, useState } from 'react'
-import { Plus, LayoutGrid, List, Layers, X, ChevronLeft, ChevronRight, MapPin, Pencil, Eye, Sheet, Columns3, Search } from '@tamagui/lucide-icons'
+import { Plus, LayoutGrid, List, Layers, X, ChevronLeft, ChevronRight, MapPin, Pencil, Eye, Sheet, Columns3, Search, Trash } from '@tamagui/lucide-icons'
 import { getErrorMessage, useToastController } from '@my/ui'
 import { useTimeout, useUpdateEffect } from 'usehooks-ts';
 import { usePageParams, useQueryState } from '../next'
@@ -122,6 +122,14 @@ interface DataViewProps {
     refreshOnHotReload?: boolean;
     quickRefresh?: boolean;
     URLTransform?: (url: string) => string;
+    disableNotifications?: boolean;
+    hideSearch?: boolean;
+    hideDeleteAll?: boolean;
+    hidePagination?: boolean;
+    title?: React.ReactNode | undefined;
+    createElement?: (data: any) => Promise<any>;
+    addOpened?: boolean;
+    setAddOpened?: (opened: boolean) => void;
 }
 
 export const DataView = (props: DataViewProps & { ready?: boolean }) => {
@@ -263,7 +271,16 @@ const DataViewInternal = forwardRef(({
     refreshOnHotReload = false,
     quickRefresh = false,
     URLTransform = (url) => url,
+    disableNotifications = false,
+    hideSearch = false,
+    hideDeleteAll = false,
+    hidePagination = false,
+    title = undefined,
+    createElement = undefined,
+    addOpened = undefined,
+    setAddOpened = undefined
 }: DataViewProps, ref: any) => {
+
     const displayName = (entityName ?? pluralName) ?? name
     const [state, setState] = useState(pageState ?? {})
     sourceUrl = URLTransform(sourceUrl)
@@ -275,10 +292,11 @@ const DataViewInternal = forwardRef(({
         setSearchStatus(undefined)
     }
 
-    const [_items, setItems] = useRemoteStateList(initialItems, fetch, 'notifications/' + model.getModelName() + "/#", model, quickRefresh)
+    const [_items, setItems] = useRemoteStateList(initialItems, fetch, 'notifications/' + model.getModelName() + "/#", model, quickRefresh, disableNotifications);
     const items: any = _items
     const [currentItems, setCurrentItems] = useState<PendingResult | undefined>(initialItems ?? getPendingResult('pending'))
-    const [createOpen, setCreateOpen] = useState(false)
+    const [createOpen, setCreateOpen] = useState(addOpened ?? false)
+    const [deleteOpen, setDeleteOpen] = useState(false)
     const { push, mergePush, removePush, replace } = usePageParams(state)
     const [selected, setSelected] = useState([])
     const [currentItemData, setCurrentItemData] = useState(itemData)
@@ -289,6 +307,12 @@ const DataViewInternal = forwardRef(({
     const extraFiltersStates = Object.entries(state).filter((st) => extraFiltersKeys.includes(st[0]))
 
     const isXs = useMedia().xs
+
+    useUpdateEffect(() => {
+        if(addOpened !== undefined) {
+            setCreateOpen(addOpened)
+        }
+    }, [addOpened])
 
     useQueryState(setState)
 
@@ -525,9 +549,8 @@ const DataViewInternal = forwardRef(({
         </Center>
     }
 
-
     const realActiveView = activeViewIndex == -1 ? 0 : activeViewIndex
-    
+
     return (<AsyncView atom={currentItems}>
         <YStack ref={ref} height="100%" f={1}>
             <ActiveGroup initialState={realActiveView}>
@@ -553,7 +576,12 @@ const DataViewInternal = forwardRef(({
                     p={"$2"}
                     pt="$5"
                     pl="$5"
-                    setOpen={setCreateOpen}
+                    setOpen={(v) => {
+                        setCreateOpen(v);
+                        if (setAddOpened) {
+                            setAddOpened(v);
+                        }
+                    }}
                     open={createOpen}
                     hideAccept={true}
                     description={""}
@@ -572,12 +600,20 @@ const DataViewInternal = forwardRef(({
                                         console.log('Saving from editable object: ', data)
                                         try {
                                             const obj = model.load(data)
-                                            const result = await API.post(sourceUrl, onAdd(obj.create().getData()))
-                                            if (result.isError) {
-                                                throw result.error
+                                            let result;
+                                            if (createElement) {
+                                                result = await createElement(obj.create().getData())
+                                            } else {
+                                                result = await API.post(sourceUrl, onAdd(obj.create().getData()))
+                                                if (result.isError) {
+                                                    throw result.error
+                                                }
                                             }
                                             //fetch(setItems)
                                             setCreateOpen(false);
+                                            if(setAddOpened) {
+                                                setAddOpened(false);
+                                            }
                                             toast.show(name + ' created', {
                                                 message: obj.getId()
                                             })
@@ -594,10 +630,17 @@ const DataViewInternal = forwardRef(({
                                     console.log('Saving from editable object: ', data)
                                     try {
                                         const obj = model.load(data)
-                                        const result = await API.post(sourceUrl, onAdd(obj.create().getData()))
-                                        if (result.isError) {
-                                            throw result.error
+
+                                        let result;
+                                        if (createElement) {
+                                            result = await createElement(obj.create().getData())
+                                        } else {
+                                            result = await API.post(sourceUrl, onAdd(obj.create().getData()))
+                                            if (result.isError) {
+                                                throw result.error
+                                            }
                                         }
+
                                         //fetch(setItems)
                                         setCreateOpen(false);
                                         toast.show(name + ' created', {
@@ -680,11 +723,27 @@ const DataViewInternal = forwardRef(({
                         </ScrollView>
                     </YStack>
                 </AlertDialog>
+                <AlertDialog
+                    acceptCaption="Delete all"
+                    setOpen={setDeleteOpen}
+                    open={deleteOpen}
+                    onAccept={async (setOpen) => {
+                        await API.get('/api/core/v1/databases/' + name + '/delete')
+                        document.location.reload()
+                    }}
+                    title={'Delete'}
+                    description={"This action will delete all data from your database. Are you sure you want to continue?"}
+                    w={400}
+                >
+                    <YStack f={1} jc="center" ai="center">
+
+                    </YStack>
+                </AlertDialog>
                 {!state.editFile && <>
                     <XStack pt="$3" px="$3" mb="$1">
                         <XStack ml="$2" f={1} ai="center" gap="$2">
                             <Paragraph>
-                                <Text fontSize="$9" fontWeight="600" color="$color11">{displayName.charAt(0).toUpperCase() + displayName.slice(1)}</Text>
+                                {title ?? <Text fontSize="$9" fontWeight="600" color="$color11">{displayName.charAt(0).toUpperCase() + displayName.slice(1)}</Text>}
                             </Paragraph>
                             {rowIcon && <Stack mr="$3"><Tinted><RowIcon color='var(--color7)' size={26} /></Tinted></Stack>}
                             {hasGlobalMenu ? <Tinted><ItemMenu type={"global"} sourceUrl='' hideDeleteButton={true} element="" extraMenuActions={extraMenuActions}></ItemMenu></Tinted> : <></>}
@@ -692,7 +751,7 @@ const DataViewInternal = forwardRef(({
                         </XStack>
 
                         <XStack ai="center" ml="$2">
-                            <XStack ai="center">
+                            {!hidePagination && <XStack ai="center">
                                 {currentItems.isLoaded && <XStack>
                                     <XStack ai="center">
                                         <XStack ai="center">
@@ -722,9 +781,9 @@ const DataViewInternal = forwardRef(({
                                         </Tinted>
                                     </XStack>
                                 </XStack>}
-                            </XStack>
+                            </XStack>}
                             <XStack ai="center" marginLeft="$3" mb={"$1"} $xs={{ display: 'none' }}>
-                                <SearchAIModalButton
+                                {!hideSearch && <SearchAIModalButton
                                     placeholder={"Search in " + name}
                                     initialState={search}
                                     defaultOpened={true}
@@ -736,7 +795,7 @@ const DataViewInternal = forwardRef(({
                                             description={`Search in ${name}`}
                                         />
                                     }
-                                />
+                                />}
                                 {!hideFilters && <Filters
                                     customFilters={customFilters}
                                     model={model}
@@ -751,6 +810,16 @@ const DataViewInternal = forwardRef(({
                                         description={`Add ${name}`}
                                         onPress={() => {
                                             onAddButton ? onAddButton() : setCreateOpen(true)
+                                        }}
+                                    />
+                                </Tinted>}
+                                {!hideDeleteAll && <Tinted>
+                                    <DataViewActionButton
+                                        id="admin-dataview-add-btn"
+                                        icon={Trash}
+                                        description={`Delete all items from ${name}`}
+                                        onPress={() => {
+                                            setDeleteOpen(true)
                                         }}
                                     />
                                 </Tinted>}

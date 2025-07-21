@@ -96,12 +96,12 @@ const iconTable = {
   'action': 'zap'
 }
 
-const SecondSlide = ({ card, board, selected, states, icons, actions, setCard }) => {
+const SecondSlide = ({ card, board, selected, states, icons, actions, setCard,errors }) => {
   return <YStack mb={"$4"} f={1} mah="1200px" h="64vh">
 
     <ActionCardSettings board={board} states={states} icons={icons} card={card} actions={actions} onEdit={(data) => {
       setCard(data)
-    }} />
+    }} errors={errors} />
   </YStack>
 }
 
@@ -110,7 +110,7 @@ const typeCodes = {
 //data contains: data.value, data.icon and data.color
 return card({
     content: \`
-        \${icon({ name: data.icon, color: data.color, size: '48' })}    
+        \${cardIcon({ data, size: '48' })}    
         \${cardValue({ value: data.value })}
     \`
 });
@@ -119,7 +119,7 @@ return card({
 // data contains: data.icon, data.color, data.name, data.params
 return card({
     content: \`
-        \${icon({ name: data.icon, color: data.color, size: '48' })}
+        \${cardIcon({ data, size: '48' })}
         \${cardAction({ data })}
     \`
 });
@@ -168,14 +168,14 @@ const useCards = (extraCards = []) => {
   return [...extraCards, ...flattenTree(availableCards)]
 }
 
-export const CardSelector = ({ defaults = {}, board, addOpened, setAddOpened, onFinish, states, icons, actions }) => {
+export const CardSelector = ({ defaults = {}, board, addOpened, setAddOpened, onFinish, states, icons, actions, errors}) => {
   const cards = useCards(extraCards)
   const [selectedCard, setSelectedCard] = useState(cards[0])
   const [card, setCard] = useState()
 
   useEffect(() => {
     if (selectedCard) {
-      setCard({ key: "key", width: 2, height: 6, icon: iconTable[selectedCard.defaults.type], html: typeCodes[selectedCard.defaults.type], ...selectedCard.defaults })
+      setCard({ key: "key", width: selectedCard.defaults.type === 'value'?1:2, height: selectedCard.defaults.type === 'value'? 4:6, icon: iconTable[selectedCard.defaults.type], html: typeCodes[selectedCard.defaults.type], ...selectedCard.defaults })
     } else {
       setCard(undefined)
     }
@@ -197,8 +197,12 @@ export const CardSelector = ({ defaults = {}, board, addOpened, setAddOpened, on
           styles={{ w: "90vw", maw: 1400, h: "90vh", mah: 1200 }}
           lastButtonCaption="Create"
           onFinish={async () => {
-            await onFinish(card)
-            setAddOpened(false)
+            try{
+              await onFinish(card)
+              setAddOpened(false)
+            }catch(e){
+              console.error("Error creating card: ", e)
+            }
           }}
           slides={[
             {
@@ -209,7 +213,7 @@ export const CardSelector = ({ defaults = {}, board, addOpened, setAddOpened, on
             {
               name: "Configure your widget",
               title: "Configure your widget",
-              component: <SecondSlide board={board} states={states} icons={icons} actions={actions} card={card} setCard={setCard} />
+              component: <SecondSlide board={board} states={states} icons={icons} actions={actions} card={card} setCard={setCard} errors={errors} />
             }
           ]
           }></Slides>

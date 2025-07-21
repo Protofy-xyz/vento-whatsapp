@@ -1,39 +1,40 @@
 appId: com.protofy.vento
 productName: Vento
 executableName: Vento
+
 directories:
   output: ../dist
+
 mac:
   target:
-    - target: dir
-      arch:
-        - x64
-        - arm64
+    - dmg
+    - zip
+  icon: apps/adminpanel/public/icon.icns
   hardenedRuntime: true
   gatekeeperAssess: false
-  icon: apps/adminpanel/public/icon.icns
+
 win:
   target:
-    - target: dir
-      arch: x64
-  icon: "apps/adminpanel/public/favicon.ico"
+    - portable
+    - dir
+  icon: apps/adminpanel/public/favicon.ico
   signingHashAlgorithms: []
   sign: false
+
 linux:
   target:
-    - target: dir
-      arch: x64
-  icon: "apps/adminpanel/public/favicon.ico"
-asar: false
+    - AppImage
+    - tar.gz
+  icon: apps/adminpanel/public/favicon.ico
+
 files:
-  - proxy-main.js
   - electron/**
-  - "!**/node_modules"
-  - "!**/node_modules/**"
-  - "!node_modules"
-  - "!node_modules/**"
+  - node_modules/adm-zip/**
+  - node_modules/tar/**
+  - package.json
   - "!**/*.log"
   - "!.git"
   - "!.gitignore"
+
 buildDependenciesFromSource: false
 npmRebuild: false

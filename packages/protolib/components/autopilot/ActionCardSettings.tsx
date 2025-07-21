@@ -1,5 +1,5 @@
-import { Cog, Braces, Monitor, ClipboardList, Sliders, FileCode, Info } from '@tamagui/lucide-icons'
-import { Text, YStack, XStack, Label, ToggleGroup, Input, Switch, ScrollView } from '@my/ui'
+import { Braces, Monitor, ClipboardList, Sliders, FileCode, Info } from '@tamagui/lucide-icons'
+import { Text, YStack, XStack, ToggleGroup, Paragraph } from '@my/ui'
 import { useEffect, useState } from 'react'
 import { Tinted } from '../Tinted'
 import { RuleEditor } from './RuleEditor'
@@ -11,14 +11,16 @@ import { Monaco } from '../Monaco'
 import { Markdown } from '../Markdown'
 import { Panel, PanelGroup } from "react-resizable-panels";
 import CustomPanelResizeHandle from "../MainPanel/CustomPanelResizeHandle";
-import { useUpdateEffect } from 'usehooks-ts'
+import { SettingsEditor } from './SettingsEditor'
 
-export const ActionCardSettings = ({ board, actions, states, card, icons, onEdit = (data) => { } }) => {
+export const ActionCardSettings = ({ board, actions, states, card, icons, onEdit = (data) => { }, errors }) => {
   const [cardData, setCardData] = useState(card);
   const isSimpleReturnString =
     !cardData.rulesCode ||
     /^return\s*`[\s\S]*`$/.test(cardData.rulesCode.trim());
-  const [tab, setTab] = useState("rules");
+  const hasEmptyRulesCode = !cardData.rulesCode
+  //if there is rules code and it is a simple return string, we show the value tab by default, otherwise we show the rules tab
+  const [tab, setTab] = useState(!hasEmptyRulesCode && isSimpleReturnString ? "value" : "rules");
 
   const { resolvedTheme } = useThemeSetting();
   useEffect(() => {
@@ -163,7 +165,7 @@ export const ActionCardSettings = ({ board, actions, states, card, icons, onEdit
                 return "rules processed"
               }}
               actions={actions.boards || {}}
-              compiler={cardData.type == 'value' ? 'getValueCode':'getActionCode'}
+              compiler={cardData.type == 'value' ? 'getValueCode' : 'getActionCode'}
               states={states?.boards || {}}
               cardData={cardData}
               setCardData={setCardData}
@@ -187,68 +189,19 @@ export const ActionCardSettings = ({ board, actions, states, card, icons, onEdit
               }}
             />}
             {tab == 'view' && <HTMLEditor setHTMLCode={setHTMLCode} htmlCode={cardData.html} data={{ ...cardData, icon: cardData.icon, color: cardData.color, name: cardData.name, params: cardData.params }} />}
-            {tab == 'raw' && <YStack f={1}>
-              {card.type == 'action' && <XStack>
-                <XStack ai="center">
-                  <Label htmlFor="display-value-switch" mr={"$3"}  >Display value</Label>
-                  <Switch
-                    id="display-value-switch"
-                    size="$4"
-                    checked={cardData.displayResponse}
-                    onCheckedChange={(value) => {
-                      setCardData({ ...cardData, displayResponse: value })
-                    }}
-                    className="no-drag"
-                  >
-                    <Switch.Thumb className="no-drag" animation="quick" />
-                  </Switch>
-                </XStack>
-                <XStack ai="center" ml={"$4"}>
-                  <Label htmlFor="display-button-switch" mr={"$3"}>Display button</Label>
-                  <Switch
-                    id="display-button-switch"
-                    size="$4"
-                    checked={cardData.displayButton === undefined ? true : cardData.displayButton}
-                    onCheckedChange={(value) => {
-                      setCardData({ ...cardData, displayButton: value })
-                    }}
-                    className="no-drag"
-                  >
-                    <Switch.Thumb className="no-drag" animation="quick" />
-                  </Switch>
-                </XStack>
-              </XStack>}
-
-              <Monaco
-                path={"card-" + cardData.name + ".ts"}
-                darkMode={resolvedTheme === 'dark'}
-                sourceCode={JSON.stringify(cardData, null, 2)}
-                onChange={(newCode) => {
-                  try {
-                    setCardData(JSON.parse(newCode))
-                  } catch (err) {
-                    console.error("Invalid JSON", err)
-                  }
-                }}
-                options={{
-                  scrollBeyondLastLine: false,
-                  scrollbar: {
-                    vertical: 'auto',
-                    horizontal: 'auto',
-                  },
-                  folding: false,
-                  lineDecorationsWidth: 0,
-                  lineNumbersMinChars: 0,
-                  minimap: { enabled: false },
-                  formatOnPaste: true,
-                  formatOnType: true,
-                }}
-              />
-            </YStack>}
+            {tab === 'raw' && <SettingsEditor card={card} cardData={cardData} setCardData={setCardData} resolvedTheme={resolvedTheme}/>}
           </Tinted>
 
         </YStack>
       </Tinted >
+      {errors?.length > 0 ?
+                <YStack>
+                  {errors.map((error, index) => (
+                    <Paragraph key={"err" + index} color="$red9" fontSize="$4">{error}</Paragraph>
+                  ))}
+                </YStack>
+                : <></>
+              }
     </YStack >
   );
 };
