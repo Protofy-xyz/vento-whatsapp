@@ -28,7 +28,7 @@ jobs:
         run: |
           mkdir -p dist
           FILES=$(jq -r '.files[]' asset-package.json)
-          zip -j "dist/${{ github.ref_name }}.zip" $FILES
+          zip "dist/${{ github.ref_name }}.zip" $FILES
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
