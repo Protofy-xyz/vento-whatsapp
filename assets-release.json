@@ -1,6 +1,6 @@
 [
     {
-        "name": "asset-package",
+        "name": "whatsapp",
         "files": [
             "extensions/whatsapp/tsconfig.json",
             "extensions/whatsapp/package.json",
