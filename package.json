@@ -60,7 +60,8 @@
     "app-package-linux": "electron-builder -c electron-builder.yml --linux --x64",
     "app-package-all": "electron-builder -c electron-builder.yml --win --mac --linux",
     "download-binaries": "node scripts/download-bins.js",
-    "clean-deps": "shx rm -rf node_modules"
+    "clean-deps": "shx rm -rf node_modules",
+    "assets": "node extensions/assets/scripts/assets.js"
   },
   "resolutions": {
     "react": "18.2.0",
