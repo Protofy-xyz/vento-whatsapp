@@ -2,7 +2,7 @@
     {
         "name": "whatsapp",
         "files": [
-            "extensions/whatsapp/*"
+            "extensions/whatsapp/**"
         ]
     }
 ]
